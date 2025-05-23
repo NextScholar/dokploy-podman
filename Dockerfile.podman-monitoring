@@ -1,0 +1,46 @@
+# Build stage
+FROM golang:1.21-alpine3.19 AS builder
+
+# Install necessary dependencies
+RUN apk add --no-cache gcc musl-dev sqlite-dev
+
+# Set the working directory
+WORKDIR /app
+
+# Copy all source code first
+COPY . .
+
+# Move to the Golang application directory
+WORKDIR /app/apps/monitoring
+
+# Download dependencies
+RUN go mod download
+
+# Compile the application
+RUN CGO_ENABLED=1 GOOS=linux go build -o main main.go
+
+# Final stage
+FROM alpine:3.19
+
+# Install SQLite and Podman CLI instead of Docker CLI
+RUN apk add --no-cache sqlite-libs podman
+
+WORKDIR /app
+
+# Copy the compiled binary and the monitor.go file
+COPY --from=builder /app/apps/monitoring/main ./main
+COPY --from=builder /app/apps/monitoring/main.go ./monitor.go
+
+# Create directory for Podman socket
+RUN mkdir -p /var/run
+
+# Copy the Docker-to-Podman adapter script
+COPY podman-adapter.sh /usr/bin/docker
+RUN chmod +x /usr/bin/docker
+
+# Expose port
+ENV PORT=3001
+EXPOSE 3001
+
+# Run the application
+CMD ["./main"]
